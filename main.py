@@ -4,19 +4,15 @@ import smtplib
 import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
 
-# --- Load secrets ---
 EMAIL = os.getenv("EMAIL")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
 
-# --- Job keywords and filters ---
 KEYWORDS = ["data science internship", "machine learning internship", "AI internship", "associate data scientist"]
 EXCLUDE = ["freelance", "contract", "short-term"]
 LOCATION = "Lahore"
 
-# --- Cold outreach message ---
 COLD_MESSAGE = """
 Hello [Hiring Manager Name],
 
@@ -26,7 +22,6 @@ Best regards,
 Ziafat Majeed
 """
 
-# --- Scrape LinkedIn jobs ---
 def scrape_jobs():
     print("Scraping jobs...")
     results = []
@@ -41,10 +36,16 @@ def scrape_jobs():
                 title = link.get_text().strip()
                 if any(ex in title.lower() for ex in EXCLUDE):
                     continue
-                results.append((title, href))
-    return list(set(results))  # remove duplicates
+                results.append({
+                    "title": title,
+                    "link": href,
+                    "company": "N/A",
+                    "location": LOCATION,
+                    "hiring_manager": "Not Available",
+                    "deadline": "Not Listed"
+                })
+    return list({job['link']: job for job in results}.values())
 
-# --- Email job list ---
 def send_email(jobs):
     print("Sending email...")
     message = MIMEMultipart("alternative")
@@ -52,11 +53,30 @@ def send_email(jobs):
     message["From"] = EMAIL
     message["To"] = RECEIVER_EMAIL
 
-    html = f"<h3>🧠 Found {len(jobs)} job(s) for you!</h3><ul>"
-    for title, link in jobs:
-        html += f"<li><b>{title}</b> — <a href='{link}'>Apply</a></li>"
-    html += "</ul><br><p><b>Suggested Cold Message:</b></p><pre>{COLD_MESSAGE}</pre>"
-
+    html = f"""
+    <h3>🧠 Found {len(jobs)} job(s) for you!</h3>
+    <table border='1' cellspacing='0' cellpadding='5'>
+        <tr>
+            <th>Company</th>
+            <th>Job Title</th>
+            <th>Location</th>
+            <th>Application Link</th>
+            <th>Hiring Manager</th>
+            <th>Deadline</th>
+        </tr>
+    """
+    for job in jobs:
+        html += f"""
+        <tr>
+            <td>{job['company']}</td>
+            <td>{job['title']}</td>
+            <td>{job['location']}</td>
+            <td><a href="{job['link']}">Apply</a></td>
+            <td>{job['hiring_manager']}</td>
+            <td>{job['deadline']}</td>
+        </tr>
+        """
+    html += "</table><br><p><b>Suggested Cold Message:</b></p><pre>{}</pre>".format(COLD_MESSAGE)
     message.attach(MIMEText(html, "html"))
 
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
@@ -65,7 +85,6 @@ def send_email(jobs):
         server.sendmail(EMAIL, RECEIVER_EMAIL, message.as_string())
     print("Email sent!")
 
-# --- Main ---
 if __name__ == "__main__":
     jobs = scrape_jobs()
     if jobs:
