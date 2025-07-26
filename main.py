@@ -8,9 +8,9 @@ import os
 from datetime import datetime
 
 # 🔐 Email credentials (from GitHub Secrets in GitHub Actions)
-EMAIL_ADDRESS = os.environ.get('EMAIL_USER')
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASS')
-RECEIVER_EMAIL = os.environ.get('EMAIL_TO')
+EMAIL_ADDRESS = os.environ.get('EMAIL')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
+RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
 
 # 🔍 Search parameters
 SEARCH_TERMS = [
