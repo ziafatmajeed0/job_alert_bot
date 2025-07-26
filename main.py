@@ -1,93 +1,132 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 import smtplib
-import os
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import os
+from datetime import datetime
 
-EMAIL = os.getenv("EMAIL")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL")
+# 🔐 Email credentials (from GitHub Secrets in GitHub Actions)
+EMAIL_ADDRESS = os.environ.get('EMAIL_USER')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASS')
+RECEIVER_EMAIL = os.environ.get('EMAIL_TO')
 
-KEYWORDS = ["data science internship", "machine learning internship", "AI internship", "associate data scientist"]
-EXCLUDE = ["freelance", "contract", "short-term"]
-LOCATION = "Lahore"
+# 🔍 Search parameters
+SEARCH_TERMS = [
+    "data science internship",
+    "machine learning internship",
+    "AI internship",
+    "associate data scientist"
+]
+CITY = "Lahore"
+EXCLUDED_TERMS = ["freelance", "contract", "short-term"]
 
-COLD_MESSAGE = """
-Hello [Hiring Manager Name],
+# 🧠 Generate search queries
+def generate_queries():
+    base_url = "https://www.google.com/search?q=site:linkedin.com/jobs+"
+    return [f"{base_url}{term.replace(' ', '+')}+{CITY.replace(' ', '+')}" for term in SEARCH_TERMS]
 
-I came across your job listing and found it aligns with my skills and experience in data science and AI. I'm a recent software engineering graduate with practical projects in machine learning. I’d love to connect and learn more about your expectations for this role.
+# ✅ Extract clean URL
+def extract_clean_url(href):
+    if href.startswith("/url?q="):
+        clean = href.split("/url?q=")[-1].split("&")[0]
+        return clean
+    elif href.startswith("http"):
+        return href
+    return None
 
-Best regards,
-Ziafat Majeed
-"""
+# 🧹 Filter out unwanted terms
+def is_relevant(text):
+    return not any(term.lower() in text.lower() for term in EXCLUDED_TERMS)
 
+# 🔍 Scrape Google for LinkedIn job posts
 def scrape_jobs():
-    print("Scraping jobs...")
-    results = []
-    headers = {"User-Agent": "Mozilla/5.0"}
-    for keyword in KEYWORDS:
-        url = f"https://www.google.com/search?q=site:linkedin.com/jobs+{keyword.replace(' ', '+')}+{LOCATION}"
-        r = requests.get(url, headers=headers)
-        soup = BeautifulSoup(r.text, "html.parser")
-        for link in soup.select("a"):
-            href = link.get("href")
-            if href and "linkedin.com/jobs" in href:
-                title = link.get_text().strip()
-                if any(ex in title.lower() for ex in EXCLUDE):
-                    continue
-                results.append({
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    job_list = []
+
+    for url in generate_queries():
+        response = requests.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        for result in soup.select(".tF2Cxc"):
+            raw_href = result.a['href']
+            title = result.h3.text if result.h3 else ""
+            if not is_relevant(title):
+                continue
+            link = extract_clean_url(raw_href)
+            if link and "linkedin.com/jobs" in link:
+                job_list.append({
                     "title": title,
-                    "link": href,
-                    "company": "N/A",
-                    "location": LOCATION,
-                    "hiring_manager": "Not Available",
-                    "deadline": "Not Listed"
+                    "link": link,
+                    "company": "Unknown",
+                    "location": CITY,
+                    "hiring_manager": "N/A",
+                    "deadline": "N/A"
                 })
-    return list({job['link']: job for job in results}.values())
 
-def send_email(jobs):
-    print("Sending email...")
-    message = MIMEMultipart("alternative")
-    message["Subject"] = "📌 Latest Job Listings for You"
-    message["From"] = EMAIL
-    message["To"] = RECEIVER_EMAIL
+    return job_list
 
-    html = f"""
-    <h3>🧠 Found {len(jobs)} job(s) for you!</h3>
-    <table border='1' cellspacing='0' cellpadding='5'>
-        <tr>
+# 📧 Send email with results
+def send_email(job_data):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "📊 New Job Listings for You!"
+    msg["From"] = EMAIL_ADDRESS
+    msg["To"] = RECEIVER_EMAIL
+
+    # 🧾 Create HTML Table
+    html_content = """
+    <html>
+      <body>
+        <p>Hi,<br><br>Here are the latest job listings that match your criteria:</p>
+        <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+          <tr>
             <th>Company</th>
             <th>Job Title</th>
             <th>Location</th>
             <th>Application Link</th>
             <th>Hiring Manager</th>
             <th>Deadline</th>
-        </tr>
+          </tr>
     """
-    for job in jobs:
-        html += f"""
-        <tr>
+
+    for job in job_data:
+        html_content += f"""
+          <tr>
             <td>{job['company']}</td>
             <td>{job['title']}</td>
             <td>{job['location']}</td>
             <td><a href="{job['link']}">Apply</a></td>
             <td>{job['hiring_manager']}</td>
             <td>{job['deadline']}</td>
-        </tr>
+          </tr>
         """
-    html += "</table><br><p><b>Suggested Cold Message:</b></p><pre>{}</pre>".format(COLD_MESSAGE)
-    message.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL, EMAIL_PASSWORD)
-        server.sendmail(EMAIL, RECEIVER_EMAIL, message.as_string())
-    print("Email sent!")
+    html_content += """
+        </table>
+        <br><br>
+        <p>Sent automatically on {}</p>
+      </body>
+    </html>
+    """.format(datetime.now().strftime('%Y-%m-%d %H:%M'))
 
+    msg.attach(MIMEText(html_content, "html"))
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_ADDRESS, RECEIVER_EMAIL, msg.as_string())
+        print("✅ Email sent successfully.")
+    except Exception as e:
+        print("❌ Failed to send email:", e)
+
+# 🚀 Main execution
 if __name__ == "__main__":
     jobs = scrape_jobs()
     if jobs:
         send_email(jobs)
     else:
-        print("No jobs found.")
+        print("ℹ️ No jobs found today.")
