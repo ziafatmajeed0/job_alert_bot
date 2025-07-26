@@ -1,17 +1,15 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import os
 from datetime import datetime
 
-# 🔐 Email credentials (from GitHub Secrets in GitHub Actions)
-email_user = os.getenv("EMAIL_USER")
-email_pass = os.getenv("EMAIL_PASS")
-receiver_email = os.getenv("EMAIL_TO")
-
+# ✅ Email credentials from GitHub Actions secrets
+EMAIL_ADDRESS = os.getenv("EMAIL")           # Your Gmail address
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD") # App password (not Gmail password)
+RECEIVER_EMAIL = os.getenv("RECEIVER_EMAIL") # Receiver's email address
 
 # 🔍 Search parameters
 SEARCH_TERMS = [
@@ -23,12 +21,12 @@ SEARCH_TERMS = [
 CITY = "Lahore"
 EXCLUDED_TERMS = ["freelance", "contract", "short-term"]
 
-# 🧠 Generate search queries
+# 🔗 Generate Google search URLs
 def generate_queries():
     base_url = "https://www.google.com/search?q=site:linkedin.com/jobs+"
     return [f"{base_url}{term.replace(' ', '+')}+{CITY.replace(' ', '+')}" for term in SEARCH_TERMS]
 
-# ✅ Extract clean URL
+# 🔗 Extract clean job link
 def extract_clean_url(href):
     if href.startswith("/url?q="):
         clean = href.split("/url?q=")[-1].split("&")[0]
@@ -37,47 +35,52 @@ def extract_clean_url(href):
         return href
     return None
 
-# 🧹 Filter out unwanted terms
+# ❌ Filter out non-relevant jobs
 def is_relevant(text):
     return not any(term.lower() in text.lower() for term in EXCLUDED_TERMS)
 
-# 🔍 Scrape Google for LinkedIn job posts
+# 🔎 Scrape LinkedIn job links from Google search
 def scrape_jobs():
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     job_list = []
 
     for url in generate_queries():
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            response = requests.get(url, headers=headers)
+            soup = BeautifulSoup(response.text, "html.parser")
 
-        for result in soup.select(".tF2Cxc"):
-            raw_href = result.a['href']
-            title = result.h3.text if result.h3 else ""
-            if not is_relevant(title):
-                continue
-            link = extract_clean_url(raw_href)
-            if link and "linkedin.com/jobs" in link:
-                job_list.append({
-                    "title": title,
-                    "link": link,
-                    "company": "Unknown",
-                    "location": CITY,
-                    "hiring_manager": "N/A",
-                    "deadline": "N/A"
-                })
+            for result in soup.select(".tF2Cxc"):
+                href = result.a['href']
+                title = result.h3.text if result.h3 else ""
+                if not is_relevant(title):
+                    continue
+                link = extract_clean_url(href)
+                if link and "linkedin.com/jobs" in link:
+                    job_list.append({
+                        "title": title,
+                        "link": link,
+                        "company": "Unknown",
+                        "location": CITY,
+                        "hiring_manager": "N/A",
+                        "deadline": "N/A"
+                    })
+        except Exception as e:
+            print(f"❌ Error scraping {url}: {e}")
 
     return job_list
 
-# 📧 Send email with results
+# 📧 Send job listings via email
 def send_email(job_data):
+    if not EMAIL_ADDRESS or not EMAIL_PASSWORD or not RECEIVER_EMAIL:
+        print("❌ Missing one or more email credentials. Check GitHub secrets.")
+        return
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "📊 New Job Listings for You!"
     msg["From"] = EMAIL_ADDRESS
     msg["To"] = RECEIVER_EMAIL
 
-    # 🧾 Create HTML Table
+    # 🧾 Create HTML email body
     html_content = """
     <html>
       <body>
@@ -105,13 +108,13 @@ def send_email(job_data):
           </tr>
         """
 
-    html_content += """
+    html_content += f"""
         </table>
         <br><br>
-        <p>Sent automatically on {}</p>
+        <p>Sent automatically on {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
       </body>
     </html>
-    """.format(datetime.now().strftime('%Y-%m-%d %H:%M'))
+    """
 
     msg.attach(MIMEText(html_content, "html"))
 
@@ -124,7 +127,7 @@ def send_email(job_data):
     except Exception as e:
         print("❌ Failed to send email:", e)
 
-# 🚀 Main execution
+# 🚀 Main logic
 if __name__ == "__main__":
     jobs = scrape_jobs()
     if jobs:
