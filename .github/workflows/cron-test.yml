@@ -1,0 +1,13 @@
+name: Cron Schedule Test
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Every 10 minutes (UTC)
+
+jobs:
+  test-cron:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Print current time (UTC)
+        run: date
